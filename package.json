@@ -1,0 +1,29 @@
+{
+  "name": "cloud-dive",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "vite --port 5173 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/malilion/prachute.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/malilion/prachute/issues"
+  },
+  "homepage": "https://github.com/malilion/prachute#readme",
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.8"
+  },
+  "private": true
+}

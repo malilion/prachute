@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>雲海跳傘 · Cloud Dive</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="readout">
+        <div class="label">高度</div>
+        <div class="big"><span id="alt">4000</span><small>m</small></div>
+        <div class="row"><span class="label">下降</span><span id="vs">0</span><small>km/h</small></div>
+        <div class="row"><span class="label">水平</span><span id="hs">0</span><small>km/h</small></div>
+      </div>
+
+      <div class="score">
+        <div class="label">分數</div>
+        <div class="big" id="score">0</div>
+        <div class="row" id="combo"></div>
+      </div>
+
+      <div class="altbar" aria-hidden="true">
+        <div class="band cloud"><span>雲層</span></div>
+        <div class="band deploy"><span>開傘區</span></div>
+        <div class="tick" id="altTick"></div>
+      </div>
+
+      <div class="marker dz" id="mkDz"><i></i><span></span></div>
+      <div class="marker ring" id="mkRing"><i></i><span></span></div>
+
+      <div id="prompt"></div>
+      <div id="toast"></div>
+      <div id="keys"></div>
+    </div>
+
+    <section id="menu" class="panel">
+      <p class="eyebrow">4,000 公尺 · 自由落體 · 穿雲而下</p>
+      <h1>雲海跳傘</h1>
+      <p class="lede">從機艙躍出，穿過金色雲海，在落地前拉開傘，降落在靶心。</p>
+      <button id="startBtn" disabled>載入中…</button>
+      <dl class="controls">
+        <div><dt>W A S D</dt><dd>空中移動 / 操控傘</dd></div>
+        <div><dt>Shift</dt><dd>俯衝加速</dd></div>
+        <div><dt>空白鍵</dt><dd>跳出 / 開傘</dd></div>
+        <div><dt>滑鼠拖曳 · Q E</dt><dd>轉動視角</dd></div>
+        <div><dt>T</dt><dd>切換時段</dd></div>
+        <div><dt>M</dt><dd>靜音</dd></div>
+      </dl>
+    </section>
+
+    <section id="result" class="panel hidden">
+      <p class="eyebrow" id="resEyebrow">降落完成</p>
+      <h1 id="resTitle">0</h1>
+      <dl class="breakdown" id="resList"></dl>
+      <button id="againBtn">再跳一次</button>
+    </section>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
