@@ -230,12 +230,15 @@ export class Terrain {
     this.mesh = new THREE.Mesh(polarGrid(WORLD.radius, 230, 288), this.material);
     this.mesh.frustumCulled = false;
     this.group.add(this.mesh);
-    this.group.add(buildTrees());
+    this.trees = buildTrees();
+    this.group.add(this.trees);
     this.group.add(buildWindsock());
   }
 
-  update(time) {
+  update(time, camera) {
     this.material.uniforms.uTime.value = time;
+    // from above the cloud deck the trees are sub-pixel and only alias into black specks
+    this.trees.visible = camera.position.y < 1400;
   }
 }
 

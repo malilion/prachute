@@ -723,7 +723,7 @@ function frame(dt) {
   streaks.update(camera, game.phase === 'plane' || game.phase === 'menu' ? game.planeVel : game.vel, game.inCloud);
 
   clouds.update(dt);
-  terrain.update(game.time);
+  terrain.update(game.time, camera);
   sky.update(camera, game.time);
 
   // lights track the sky model
@@ -755,6 +755,9 @@ function frame(dt) {
   renderer.clearDepth();
   renderer.render(fgScene, camera);
 }
+
+// deterministic stepping for visual checks (works even when the tab is not painting)
+window.__step = (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) frame(dt); };
 
 let last = performance.now();
 function loop(now) {

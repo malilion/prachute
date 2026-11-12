@@ -16,7 +16,7 @@ export const CLOUD = {
   coverageWidth: 0.6,
   weatherTile: 52000,
   shapeScale: 1 / 5200,
-  detailScale: 1 / 420,
+  detailScale: 1 / 760,
   // optics
   sigma: 0.055,
   hazeDistance: 42000,
@@ -41,7 +41,11 @@ const float COV_WIDTH = ${f(CLOUD.coverageWidth)};
 float remapC(float v, float a, float b) { return clamp((v - a) / (b - a), 0.0, 1.0); }
 
 vec2 weatherAt(vec2 xz) {
-  return texture2D(tWeather, (xz + uWeatherOffset) / ${f(CLOUD.weatherTile)}).rg;
+  // mip 2 (~400 m texels) irons out the sharp Worley creases baked into the map
+  vec2 w = textureLod(tWeather, (xz + uWeatherOffset) / ${f(CLOUD.weatherTile)}, 2.0).rg;
+  // The map stores low = low - middle, which leaves hairline gaps where the two
+  // populations meet. Let low cloud continue underneath the middle deck instead.
+  return vec2(max(w.r, w.g), w.g);
 }
 
 // Global coverage shifts the weather remap, rounded toward the layer middle.
@@ -118,15 +122,15 @@ export async function loadCloudAssets() {
     weatherPixels,
     shapeData: shape,
     shape: make3D(shape, 128, 128, 128, THREE.LinearFilter, true),
-    detail: make3D(detail, 32, 32, 32, THREE.LinearFilter),
+    detail: make3D(detail, 32, 32, 32, THREE.LinearFilter, true),
     blue: make3D(stbn, 128, 128, 64, THREE.NearestFilter),
   };
 }
 
 const QUALITY = {
-  low: { steps: 44, lightSteps: 3, scale: 0.4 },
-  medium: { steps: 64, lightSteps: 5, scale: 0.5 },
-  high: { steps: 96, lightSteps: 6, scale: 0.66 },
+  low: { steps: 56, lightSteps: 3, scale: 0.4 },
+  medium: { steps: 84, lightSteps: 5, scale: 0.5 },
+  high: { steps: 120, lightSteps: 6, scale: 0.66 },
 };
 
 export class Clouds {
@@ -139,12 +143,18 @@ export class Clouds {
     this.detailOffset = new THREE.Vector3();
     this.frame = 0;
 
-    this.target = new THREE.WebGLRenderTarget(4, 4, {
+    // ping-pong pair: each frame blends the new march with the reprojected last one
+    const makeTarget = () => new THREE.WebGLRenderTarget(4, 4, {
       type: THREE.HalfFloatType,
       depthBuffer: false,
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
     });
+    this.raw = makeTarget();
+    this.target = makeTarget();
+    this.history = makeTarget();
+    this.prevViewProj = new THREE.Matrix4();
+    this.historyValid = false;
 
     this.uniforms = {
       tShape: { value: assets.shape },
@@ -205,7 +215,8 @@ export class Clouds {
         const float MAX_DIST = 90000.0;
 
         // Returns density in [0,1]. \`detailAmt\` fades the erosion with distance.
-        float cloudDensity(vec3 p, float detailAmt, float mip) {
+        float cloudDensity(vec3 p, float detailAmt, float mip, out float cover) {
+          cover = 0.0;
           float h0 = (p.y - L0.x) / (L0.y - L0.x);
           float h1 = (p.y - L1.x) / (L1.y - L1.x);
           bool in0 = h0 > 0.0 && h0 < 1.0;
@@ -215,6 +226,7 @@ export class Clouds {
           float d0 = in0 ? layerCoverage(w.r, h0) : 0.0;
           float d1 = in1 ? layerCoverage(w.g, h1) : 0.0;
           if (d0 + d1 <= 0.0) return 0.0;
+          cover = 1.0;
           float shape = textureLod(tShape, p * ${f(CLOUD.shapeScale)} + uShapeOffset, mip).r;
           d0 = remapC(d0, (1.0 - shape) * ${f(CLOUD.low.shape)}, 1.0);
           d1 = remapC(d1, (1.0 - shape) * ${f(CLOUD.mid.shape)}, 1.0);
@@ -222,13 +234,15 @@ export class Clouds {
           float m0 = 0.0;
           float m1 = 0.0;
           if (detailAmt > 0.01) {
-            float detail = texture(tDetail, p * ${f(CLOUD.detailScale)} + uDetailOffset).r;
+            float detail = textureLod(tDetail, p * ${f(CLOUD.detailScale)} + uDetailOffset, 1.0).r;
+            // cap the inverted term: its hairline peaks cut visible creases into cloud bases
+            float inv = min(1.0 - detail, 0.62);
             // fluffy tops, wispy eroded bases
-            m0 = mix(pow(detail, 6.0), 1.0 - detail, remapC(h0, 0.2, 0.4)) * ${f(CLOUD.low.detail)} * detailAmt;
-            m1 = mix(pow(detail, 6.0), 1.0 - detail, remapC(h1, 0.2, 0.4)) * ${f(CLOUD.mid.detail)} * detailAmt;
+            m0 = mix(detail * detail * 0.7, inv, remapC(h0, 0.2, 0.4)) * ${f(CLOUD.low.detail)} * detailAmt;
+            m1 = mix(detail * detail * 0.7, inv, remapC(h1, 0.2, 0.4)) * ${f(CLOUD.mid.detail)} * detailAmt;
           }
-          d0 = remapC(d0 * 2.0, m0 * 0.6, 1.0);
-          d1 = remapC(d1 * 2.0, m1 * 0.6, 1.0);
+          d0 = remapC(d0 * 2.0, m0 * 0.5, 1.0);
+          d1 = remapC(d1 * 2.0, m1 * 0.5, 1.0);
           d0 *= ${f(CLOUD.low.density)} * (0.75 * clamp(h0, 0.0, 1.0) + 0.25);
           d1 *= ${f(CLOUD.mid.density)} * (0.75 * clamp(h1, 0.0, 1.0) + 0.25);
           // soften the hard slab floor / ceiling
@@ -242,13 +256,14 @@ export class Clouds {
           return (1.0 - gg) / pow(1.0 + gg - 2.0 * g * mu, 1.5);
         }
 
-        float sunOpticalDepth(vec3 p) {
+        float sunOpticalDepth(vec3 p, float jitter) {
           float od = 0.0;
           float st = 45.0;
-          vec3 q = p;
+          vec3 q = p + uSunDir * st * (jitter - 0.5);
+          float cv;
           for (int i = 0; i < LIGHT_STEPS; i++) {
             q += uSunDir * st;
-            od += cloudDensity(q, 0.0, 0.6 + float(i) * 0.7) * st;
+            od += cloudDensity(q, 0.0, 1.3 + min(float(i) * 0.3, 1.0), cv) * st;
             st *= 1.9;
           }
           return od * SIGMA;
@@ -286,18 +301,37 @@ export class Clouds {
           vec3 col = vec3(0.0);
           float tAcc = 0.0;
           float wAcc = 0.0;
-          float t = t0 + max(26.0, t0 * 0.011) * blue;
+          float t = t0 + max(26.0, t0 * 0.012) * blue;
           int used = 0;
+          bool wasEmpty = true;
+          float lastSkip = 0.0;
           for (int i = 0; i < STEPS; i++) {
             if (t >= t1 || T < 0.012) break;
-            float dt = max(26.0, t * 0.011);
+            float dt = max(26.0, t * 0.012);
             vec3 p = ro + rd * t;
-            float mip = clamp(log2(t / 520.0), 0.0, 4.6);
-            float d = cloudDensity(p, 1.0 - smoothstep(1800.0, 4200.0, t), mip);
+            // base bias of ~1 mip blurs the hairline creases between Worley cells
+            float mip = 1.1 + clamp(log2(t / 3000.0), 0.0, 1.2);
+            float cover;
+            float d = cloudDensity(p, 1.0 - smoothstep(1400.0, 3600.0, t), mip, cover);
+            if (cover < 0.5) {
+              // nothing in the weather map here: stride through the gap
+              lastSkip = clamp(t * 0.03, 70.0, 450.0);
+              t += lastSkip;
+              wasEmpty = true;
+              continue;
+            }
+            if (wasEmpty && lastSkip > 0.0) {
+              // just entered a covered cell after a long stride: back up once
+              wasEmpty = false;
+              t -= lastSkip * 0.5;
+              lastSkip = 0.0;
+              continue;
+            }
+            wasEmpty = false;
             if (d > 0.002) {
               used++;
-              float od = sunOpticalDepth(p);
-              // direct + cheap multiple-scattering lobe that survives deeper
+              float od = sunOpticalDepth(p, fract(blue + 0.618 * float(i)));
+              // direct + cheap multiple-scattering lobes that survive deeper
               float direct = exp(-od * 0.7) * phase * 0.6;
               float multi = exp(-od * 0.14) * 0.3 + exp(-od * 0.035) * 0.09;
               float hN = remapC(p.y, CL_BOTTOM, CL_TOP);
@@ -309,10 +343,8 @@ export class Clouds {
               tAcc += t * wgt;
               wAcc += wgt;
               T *= Ts;
-              t += dt;
-            } else {
-              t += dt * 1.7;
             }
+            t += dt;
           }
 
           if (wAcc > 1e-4) {
@@ -336,6 +368,81 @@ export class Clouds {
       toneMapped: false,
     });
 
+    // Temporal resolve: reproject last frame through a proxy depth inside the layer
+    // and clamp it to the current 3x3 neighbourhood so stale history cannot smear.
+    this.resolve = new THREE.ShaderMaterial({
+      uniforms: {
+        tRaw: { value: this.raw.texture },
+        tHistory: { value: null },
+        uTexel: { value: new THREE.Vector2() },
+        uCamPos: this.uniforms.uCamPos,
+        uInvProj: this.uniforms.uInvProj,
+        uCamWorld: this.uniforms.uCamWorld,
+        uPrevViewProj: { value: new THREE.Matrix4() },
+        uHistoryWeight: { value: 0 },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv;
+        uniform sampler2D tRaw;
+        uniform sampler2D tHistory;
+        uniform vec2 uTexel;
+        uniform vec3 uCamPos;
+        uniform mat4 uInvProj;
+        uniform mat4 uCamWorld;
+        uniform mat4 uPrevViewProj;
+        uniform float uHistoryWeight;
+        void main() {
+          vec4 cur = texture2D(tRaw, vUv);
+          vec4 mn = cur;
+          vec4 mx = cur;
+          vec4 avg = cur;
+          for (int y = -1; y <= 1; y++) {
+            for (int x = -1; x <= 1; x++) {
+              if (x == 0 && y == 0) continue;
+              vec4 s = texture2D(tRaw, vUv + vec2(float(x), float(y)) * uTexel);
+              mn = min(mn, s);
+              mx = max(mx, s);
+              avg += s;
+            }
+          }
+          avg /= 9.0;
+          vec4 v = uInvProj * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+          vec3 rd = normalize(mat3(uCamWorld) * normalize(v.xyz / v.w));
+          // proxy distance: where the ray meets the bulk of the layer
+          float tRep = 30000.0;
+          if (uCamPos.y > ${f(CLOUD.top)}) {
+            if (rd.y < -1e-4) tRep = (${f(CLOUD.top - 450)} - uCamPos.y) / rd.y;
+          } else if (uCamPos.y < ${f(CLOUD.bottom)}) {
+            if (rd.y > 1e-4) tRep = (${f(CLOUD.bottom + 250)} - uCamPos.y) / rd.y;
+          } else {
+            tRep = 450.0;
+          }
+          tRep = clamp(tRep, 200.0, 40000.0);
+          vec4 pc = uPrevViewProj * vec4(uCamPos + rd * tRep, 1.0);
+          vec2 huv = pc.xy / pc.w * 0.5 + 0.5;
+          vec4 outc = cur;
+          if (uHistoryWeight > 0.0 && pc.w > 0.0 && huv.x > 0.0 && huv.x < 1.0 && huv.y > 0.0 && huv.y < 1.0) {
+            // widen the box slightly so jitter noise still averages out
+            vec4 pad = (mx - mn) * 0.15;
+            vec4 hist = clamp(texture2D(tHistory, huv), mn - pad, mx + pad);
+            outc = mix(mix(cur, avg, 0.15), hist, uHistoryWeight);
+          }
+          gl_FragColor = outc;
+        }
+      `,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    this.resolveScene = new THREE.Scene();
+    const rmesh = new THREE.Mesh(fullscreenGeometry(), this.resolve);
+    rmesh.frustumCulled = false;
+    this.resolveScene.add(rmesh);
+
     this.scene = new THREE.Scene();
     const mesh = new THREE.Mesh(fullscreenGeometry(), this.material);
     mesh.frustumCulled = false;
@@ -345,7 +452,13 @@ export class Clouds {
 
   setSize(width, height) {
     const s = this.quality.scale;
-    this.target.setSize(Math.max(2, Math.round(width * s)), Math.max(2, Math.round(height * s)));
+    const w = Math.max(2, Math.round(width * s));
+    const h = Math.max(2, Math.round(height * s));
+    this.target.setSize(w, h);
+    this.history.setSize(w, h);
+    this.raw.setSize(w, h);
+    this.resolve.uniforms.uTexel.value.set(1 / w, 1 / h);
+    this.historyValid = false;
   }
 
   update(dt) {
@@ -375,8 +488,20 @@ export class Clouds {
     u.uNear.value = camera.near;
     u.uFar.value = camera.far;
     u.uFrame.value = this.frame++;
-    renderer.setRenderTarget(this.target);
+    // swap: last frame's result becomes the history
+    const swap = this.target;
+    this.target = this.history;
+    this.history = swap;
+    renderer.setRenderTarget(this.raw);
     renderer.render(this.scene, this.camera);
+    const r = this.resolve.uniforms;
+    r.tHistory.value = this.history.texture;
+    r.uPrevViewProj.value.copy(this.prevViewProj);
+    r.uHistoryWeight.value = this.historyValid && u.uDebug.value === 0 ? 0.86 : 0;
+    renderer.setRenderTarget(this.target);
+    renderer.render(this.resolveScene, this.camera);
+    this.prevViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.historyValid = true;
   }
 
   // CPU twin of the coarse density (weather + shape, no detail). Used for
@@ -403,8 +528,8 @@ export class Clouds {
     const px = Math.floor((u - Math.floor(u)) * W) % W;
     const py = Math.floor((v - Math.floor(v)) * H) % H;
     const i = (py * W + px) * 4;
-    const wr = weatherPixels.data[i] / 255;
     const wg = weatherPixels.data[i + 1] / 255;
+    const wr = Math.max(weatherPixels.data[i] / 255, wg);
     const wrap = (c) => Math.floor((c - Math.floor(c)) * 128) % 128;
     const sx = wrap(x * CLOUD.shapeScale + this.shapeOffset.x);
     const sy = wrap(y * CLOUD.shapeScale + this.shapeOffset.y);
