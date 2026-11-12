@@ -153,3 +153,34 @@ button:disabled { opacity: 0.6; cursor: default; }
   .controls { display: none; }
   #keys { display: none; }
 }
+
+/* ---------- touch controls ---------- */
+#touch { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+#stick {
+  position: absolute; left: 22px; bottom: 26px; width: 132px; height: 132px; border-radius: 50%;
+  background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(6px);
+  pointer-events: auto; touch-action: none;
+}
+#stick i {
+  position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+  border-radius: 50%; background: rgba(246, 241, 231, 0.85);
+}
+#touch button {
+  position: absolute; right: 44px; pointer-events: auto; touch-action: none;
+  width: 92px; height: 92px; padding: 0; border-radius: 50%; font-size: 16px; letter-spacing: 0.1em;
+}
+#tAct { bottom: 30px; background: var(--accent); color: #fff; }
+#tDive { bottom: 136px; width: 72px !important; height: 72px !important; right: 54px !important;
+  background: var(--glass); color: var(--ink); border: 1px solid var(--line); }
+#tDive.on { background: rgba(246, 241, 231, 0.9); color: #1a1206; }
+body.touch #keys { display: none; }
+body.touch #prompt { bottom: 190px; font-size: 15px; }
+body.touch #prompt kbd { display: none; }
+
+@media (max-width: 640px) {
+  #prompt { white-space: normal; text-align: center; width: max-content; max-width: 88vw; font-size: 15px; letter-spacing: 0.06em; }
+  #toast { font-size: 22px; }
+  .score { right: 44px; }
+  .altbar .band span { display: none; }
+  .panel { left: 6vw; right: 6vw; bottom: 7vh; }
+}

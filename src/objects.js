@@ -39,15 +39,82 @@ function normalized(model, targetSize, axis) {
   return holder;
 }
 
+// Limb directions in model space (x = character's left, y = head, z = chest).
+// 'arch' is the generated bind pose, so it needs no targets.
+const side = (l) => ({ Left: l, Right: [-l[0], l[1], l[2]] });
+const POSES = {
+  track: { UpLeg: side([0.14, -0.99, -0.05]), Leg: side([0.1, -0.99, -0.08]), Arm: side([0.42, -0.88, -0.2]), ForeArm: side([0.2, -0.97, -0.12]) },
+  seat: { UpLeg: side([0.13, -0.8, 0.58]), Leg: side([0.06, -0.97, -0.22]), Arm: side([0.5, 0.78, 0.36]), ForeArm: side([0.08, 0.98, 0.18]) },
+  flare: { UpLeg: side([0.12, -0.92, 0.36]), Leg: side([0.05, -0.99, -0.1]), Arm: side([0.4, -0.5, 0.45]), ForeArm: side([0.18, -0.93, 0.32]) },
+  stand: { UpLeg: side([0.09, -0.995, 0.02]), Leg: side([0.04, -0.999, -0.02]), Arm: side([0.3, -0.95, 0.02]), ForeArm: side([0.2, -0.96, 0.2]) },
+};
+const CHAIN = ['UpLeg', 'Leg', 'Arm', 'ForeArm'];
+
+// Aims limb bones at blended target directions, parent first, working purely
+// in armature space so it is independent of where the diver is in the world.
+function buildPoser(model) {
+  const bones = {};
+  model.traverse((o) => { if (o.isBone) bones[o.name] = o; });
+  if (!bones.Hips) return () => {};
+  const armQ = new Map();
+  const restArmQ = (b) => {
+    if (armQ.has(b)) return armQ.get(b);
+    const q = b.parent && b.parent.isBone ? restArmQ(b.parent).clone().multiply(b.quaternion) : b.quaternion.clone();
+    armQ.set(b, q);
+    return q;
+  };
+  const limbs = [];
+  for (const s of ['Left', 'Right']) {
+    for (const part of CHAIN) {
+      const bone = bones[s + part];
+      const child = bone && bone.children.find((c) => c.isBone);
+      if (!bone || !child) continue;
+      const rest = restArmQ(bone).clone();
+      limbs.push({
+        bone, part, s, rest,
+        restLocal: bone.quaternion.clone(),
+        restDir: child.position.clone().normalize().applyQuaternion(rest),
+        parentRest: restArmQ(bone.parent).clone(),
+        parentLimb: null,
+        cur: rest.clone(),
+      });
+    }
+  }
+  for (const l of limbs) l.parentLimb = limbs.find((p) => p.bone === l.bone.parent) || null;
+  const dir = new THREE.Vector3();
+  const t = new THREE.Vector3();
+  const delta = new THREE.Quaternion();
+  const inv = new THREE.Quaternion();
+  return (weights) => {
+    for (const l of limbs) {
+      let rest = 1;
+      dir.set(0, 0, 0);
+      for (const name in weights) {
+        const w = weights[name];
+        if (w <= 0 || !POSES[name]) continue;
+        const d = POSES[name][l.part][l.s];
+        dir.addScaledVector(t.set(d[0], d[1], d[2]).normalize(), w);
+        rest -= w;
+      }
+      dir.addScaledVector(l.restDir, Math.max(rest, 0)).normalize();
+      delta.setFromUnitVectors(l.restDir, dir);
+      l.cur.copy(delta).multiply(l.rest);
+      inv.copy(l.parentLimb ? l.parentLimb.cur : l.parentRest).invert();
+      l.bone.quaternion.copy(inv).multiply(l.cur);
+    }
+  };
+}
+
 export function buildDiver(model) {
   // root: world position + heading. tilt: pitch/roll pose. fix: model-space correction.
   const root = new THREE.Group();
   const tilt = new THREE.Group();
+  const setPose = buildPoser(model);
   const fix = normalized(model, 1.95, 'y');
   fix.rotation.y = DIVER_YAW;
   tilt.add(fix);
   root.add(tilt);
-  return { root, tilt };
+  return { root, tilt, setPose };
 }
 
 export function buildPlane(model) {

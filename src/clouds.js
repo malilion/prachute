@@ -292,7 +292,7 @@ export class Clouds {
             if (t >= t1 || T < 0.012) break;
             float dt = max(26.0, t * 0.011);
             vec3 p = ro + rd * t;
-            float mip = clamp(log2(t / 1100.0), 0.0, 4.0);
+            float mip = clamp(log2(t / 520.0), 0.0, 4.6);
             float d = cloudDensity(p, 1.0 - smoothstep(1800.0, 4200.0, t), mip);
             if (d > 0.002) {
               used++;

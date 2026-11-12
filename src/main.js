@@ -138,6 +138,8 @@ window.__game = game;
 
 const keys = new Set();
 const input = { x: 0, y: 0, dive: false };
+const touch = { x: 0, y: 0, dive: false, enabled: false };
+const pose = { track: 0, seat: 0, flare: 0, stand: 0 };
 
 // ---------------------------------------------------------------- helpers
 const v1 = new THREE.Vector3();
@@ -246,6 +248,7 @@ function toMenu() {
   $('menu').classList.remove('hidden');
   $('result').classList.add('hidden');
   $('hud').classList.add('hidden');
+  $('touch').classList.add('hidden');
 }
 
 function boardPlane() {
@@ -339,6 +342,7 @@ function land() {
     ['輕柔著陸', soft ? `+${soft}` : '—'],
   ];
   $('resList').innerHTML = rows.map(([a, b]) => `<div><dt>${a}</dt><dd>${b}</dd></div>`).join('');
+  $('touch').classList.add('hidden');
   setTimeout(() => {
     if (game.phase === 'landed') $('result').classList.remove('hidden');
   }, 1400);
@@ -380,6 +384,7 @@ window.addEventListener('blur', () => keys.clear());
 
 let dragging = false;
 canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') enableTouch();
   dragging = true;
   canvas.setPointerCapture(e.pointerId);
 });
@@ -390,6 +395,41 @@ canvas.addEventListener('pointermove', (e) => {
   game.viewYaw -= e.movementX * 0.005;
   game.viewPitch = THREE.MathUtils.clamp(game.viewPitch + e.movementY * 0.004, -0.6, 1.0);
 });
+// on-screen controls for phones and tablets
+function enableTouch() {
+  if (touch.enabled) return;
+  touch.enabled = true;
+  document.body.classList.add('touch');
+}
+if (window.matchMedia('(pointer: coarse)').matches) enableTouch();
+{
+  const stick = $('stick');
+  const knob = stick.firstElementChild;
+  const move = (e) => {
+    const r = stick.getBoundingClientRect();
+    let x = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+    let y = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+    const m = Math.hypot(x, y);
+    if (m > 1) { x /= m; y /= m; }
+    touch.x = Math.abs(x) > 0.25 ? Math.sign(x) : 0;
+    touch.y = Math.abs(y) > 0.25 ? -Math.sign(y) : 0;
+    knob.style.transform = `translate(${x * 38}px, ${y * 38}px)`;
+  };
+  const end = () => {
+    touch.x = touch.y = 0;
+    knob.style.transform = '';
+  };
+  stick.addEventListener('pointerdown', (e) => { stick.setPointerCapture(e.pointerId); move(e); });
+  stick.addEventListener('pointermove', (e) => { if (stick.hasPointerCapture(e.pointerId)) move(e); });
+  stick.addEventListener('pointerup', end);
+  stick.addEventListener('pointercancel', end);
+  const dive = $('tDive');
+  const setDive = (on) => { touch.dive = on; dive.classList.toggle('on', on); };
+  dive.addEventListener('pointerdown', (e) => { dive.setPointerCapture(e.pointerId); setDive(true); });
+  dive.addEventListener('pointerup', () => setDive(false));
+  dive.addEventListener('pointercancel', () => setDive(false));
+  $('tAct').addEventListener('pointerdown', (e) => { e.preventDefault(); action(); });
+}
 $('startBtn').addEventListener('click', boardPlane);
 $('againBtn').addEventListener('click', boardPlane);
 
@@ -397,7 +437,9 @@ function readInput(dt) {
   const k = (c) => (keys.has(c) ? 1 : 0);
   input.x = k('KeyD') + k('ArrowRight') - k('KeyA') - k('ArrowLeft');
   input.y = k('KeyW') + k('ArrowUp') - k('KeyS') - k('ArrowDown');
-  input.dive = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  input.dive = keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.dive;
+  input.x = THREE.MathUtils.clamp(input.x + touch.x, -1, 1);
+  input.y = THREE.MathUtils.clamp(input.y + touch.y, -1, 1);
   const turn = k('KeyE') - k('KeyQ');
   game.viewYaw -= turn * 1.6 * dt;
 }
@@ -502,6 +544,18 @@ function updateDiverVisual(dt) {
     diver.root.position.y = 0.98;
     game.canopyOpen = Math.max(0, game.canopyOpen - dt * 0.9);
   }
+  // limb pose: arch -> track in freefall, seated/flare under canopy, standing on the ground
+  const ff = game.phase === 'freefall';
+  const landed = game.phase === 'landed';
+  const flare = game.phase === 'canopy' && input.y < 0 ? 1 : 0;
+  pose.track = damp(pose.track, ff && (input.dive || input.y > 0) ? 1 : 0, 5, dt);
+  pose.stand = damp(pose.stand, landed ? 1 : 0, 4, dt);
+  pose.flare = damp(pose.flare, flare, 5, dt);
+  pose.seat = damp(pose.seat, ff || landed ? 0 : 1 - pose.flare, 4, dt);
+  const sum = pose.track + pose.stand + pose.flare + pose.seat;
+  const norm = sum > 1 ? 1 / sum : 1;
+  diver.setPose({ track: pose.track * norm, stand: pose.stand * norm, flare: pose.flare * norm, seat: pose.seat * norm });
+
   // canopy inflation: snatch then settle
   const o = game.canopyOpen;
   const ease = 1 - Math.pow(1 - o, 3);
@@ -597,6 +651,13 @@ function updateHud() {
   setText(hud.combo, 'combo', game.combo > 1 ? `連擊 ×${game.combo}` : '');
   hud.tick.style.top = `${(1 - alt / JUMP_ALT) * 100}%`;
 
+  if (touch.enabled) {
+    const act = p === 'plane' ? '跳出' : p === 'freefall' ? '開傘' : '';
+    $('touch').classList.remove('hidden');
+    $('tAct').style.display = act ? '' : 'none';
+    $('tDive').style.display = p === 'freefall' ? '' : 'none';
+    setText($('tAct'), 'tAct', act);
+  }
   if (p === 'plane') {
     setPrompt('按 <kbd>空白鍵</kbd> 跳出機艙');
   } else if (p === 'freefall') {
