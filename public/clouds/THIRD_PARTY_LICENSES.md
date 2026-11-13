@@ -5,7 +5,7 @@ third-party assets used under the MIT License reproduced below.
 
 MIT License
 
-Copyright (c) 2025 Su
+Copyright (c) 2024 Shota Matsuda
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

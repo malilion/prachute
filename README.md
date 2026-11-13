@@ -80,7 +80,7 @@ npm run preview
 本專案程式碼以 [MIT License](LICENSE) 授權。
 
 - `public/models/` 裡的 `plane.glb`、`skydiver.glb` 使用 [Hyper3D Rodin](https://hyper3d.ai/) 生成（Founder 付費方案）。
-- `public/clouds/` 裡的雲材質與大氣查找表為第三方 MIT 素材，版權 Copyright (c) 2025 Su，詳見 [`public/clouds/THIRD_PARTY_LICENSES.md`](public/clouds/THIRD_PARTY_LICENSES.md)。這些檔案與 [takram-design-engineering/three-geospatial](https://github.com/takram-design-engineering/three-geospatial) 的預設素材內容相同：`local_weather.png`、`shape.bin`、`shape_detail.bin` 來自 `@takram/three-clouds`，`stbn.bin` 來自 `@takram/three-geospatial`。
+- `public/clouds/` 裡的雲材質與大氣查找表為第三方 MIT 素材，版權 Copyright (c) 2024 Shota Matsuda，詳見 [`public/clouds/THIRD_PARTY_LICENSES.md`](public/clouds/THIRD_PARTY_LICENSES.md)。這些檔案與 [takram-design-engineering/three-geospatial](https://github.com/takram-design-engineering/three-geospatial) 的預設素材內容相同：`local_weather.png`、`shape.bin`、`shape_detail.bin` 來自 `@takram/three-clouds`，`stbn.bin` 來自 `@takram/three-geospatial`。
 - 畫面以 [three.js](https://threejs.org/) 繪製，three.js 為 MIT 授權。
 
 ## 作者
