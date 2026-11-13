@@ -86,7 +86,3 @@ npm run preview
 ## 作者
 
 **Malilion** · [malilion.dev@gamil.com](mailto:malilion.dev@gamil.com)
-
-## 授權
-
-專案的套件資訊標示為 ISC；使用或再散布專案內容前，請確認專案檔案及素材各自適用的授權條款。
